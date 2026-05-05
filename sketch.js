@@ -27,12 +27,11 @@ let handPose;
 let hands       = [];
 let prevWristX  = null;
 let swipeVelX   = 0;
-const SWIPE_THRESHOLD = 20;   // px/frame（在視頻座標空間）
+const SWIPE_THRESHOLD = 35;   // px/frame（在視頻座標空間）
 
 // ── 臉譜圖片 ───────────────────────────────────────────────
 let faceImgs = [];             // [face1.png, face2.png]
-
-let handStarted = false;
+let handCooldown = 0;
 
 // ── preload ────────────────────────────────────────────────
 function preload() {
@@ -58,6 +57,7 @@ async function setup() {
     capture = createCapture(VIDEO, () => {
       camReady  = true;
       faceMesh.detectStart(capture, gotFaces);
+      handPose.detectStart(capture, gotHands);
        
       triangles = faceMesh.getTriangles();
       uvCoords  = faceMesh.getUVCoords();
@@ -77,6 +77,7 @@ async function setup() {
         capture.elt.play().catch(e => console.log('自動播放被阻擋:', e));
         camReady  = true;
         faceMesh.detectStart(capture, gotFaces);
+        handPose.detectStart(capture, gotHands);
          
         triangles = faceMesh.getTriangles();
         uvCoords  = faceMesh.getUVCoords();
@@ -89,6 +90,7 @@ async function setup() {
           capture.play();
           camReady  = true;
           faceMesh.detectStart(capture, gotFaces);
+          handPose.detectStart(capture, gotHands);
            
           triangles = faceMesh.getTriangles();
           uvCoords  = faceMesh.getUVCoords();
@@ -170,6 +172,7 @@ function draw() {
 // flipped:false → wrist.x 是原始（未翻轉）座標
 // 鏡像後螢幕 X = vw - wrist.x；往右移動時螢幕 X 增加
 function detectHandGesture(vw) {
+  if (millis() < handCooldown) return;
   if (displayMode !== 'texture' || hands.length === 0) {
     prevWristX = null;
     swipeVelX  = 0;
@@ -184,12 +187,18 @@ function detectHandGesture(vw) {
     swipeVelX   = swipeVelX * 0.6 + delta * 0.4;  // 平滑速度
 
     if (swipeVelX > SWIPE_THRESHOLD) {
-      currentFaceIdx = 0;  // 右滑 → face1
+      currentFaceIdx = 0;
       swipeVelX = 0;
-    } else if (swipeVelX < -SWIPE_THRESHOLD) {
-      currentFaceIdx = 1;  // 左滑 → face2
-      swipeVelX = 0;
+      handCooldown = millis() + 600;
     }
+else if (swipeVelX < -SWIPE_THRESHOLD) {
+
+  currentFaceIdx = 1;
+
+  swipeVelX = 0;
+
+  handCooldown = millis() + 600;
+}
   }
   prevWristX = screenX;
 }
@@ -316,10 +325,7 @@ function initModeButton() {
   `;
   btn.onclick = () => {
     displayMode = (displayMode === 'detect') ? 'texture' : 'detect';
-    if (displayMode === 'texture' && !handStarted) {
-      handPose.detectStart(capture, gotHands);
-      handStarted = true;
-    }
+
     btn.innerHTML        = displayMode === 'detect' ? '🔬 偵測模式' : '🎭 臉譜模式';
     btn.style.background = displayMode === 'detect'
       ? 'rgba(41, 123, 178, 0.8)'

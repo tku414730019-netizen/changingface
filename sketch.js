@@ -32,6 +32,8 @@ const SWIPE_THRESHOLD = 20;   // px/frame（在視頻座標空間）
 // ── 臉譜圖片 ───────────────────────────────────────────────
 let faceImgs = [];             // [face1.png, face2.png]
 
+let handStarted = false;
+
 // ── preload ────────────────────────────────────────────────
 function preload() {
   faceMesh    = ml5.faceMesh({ maxFaces: 1, flipped: false });
@@ -45,8 +47,9 @@ function gotHands(results) { hands = results; }
 
 // ── setup ──────────────────────────────────────────────────
 async function setup() {
+  
   // WEBGL 模式：支援 UV 貼圖 texture()
-  createCanvas(windowWidth, windowHeight, WEBGL);
+  createCanvas(windowWidth, windowHeight);
   frameRate(60);
 
   const hasCamera = await checkHasCamera();
@@ -55,17 +58,17 @@ async function setup() {
     capture = createCapture(VIDEO, () => {
       camReady  = true;
       faceMesh.detectStart(capture, gotFaces);
-      handPose.detectStart(capture, gotHands);
+       
       triangles = faceMesh.getTriangles();
       uvCoords  = faceMesh.getUVCoords();
     });
-    capture.size(640, 480);
+    capture.size(windowWidth, windowHeight);
     capture.hide();
 
   } else {
     // 備用影片 fallback
     capture = createVideo('video.mp4');
-    capture.size(640, 480);
+    
     capture.hide();
     capture.loop();
 
@@ -74,7 +77,7 @@ async function setup() {
         capture.elt.play().catch(e => console.log('自動播放被阻擋:', e));
         camReady  = true;
         faceMesh.detectStart(capture, gotFaces);
-        handPose.detectStart(capture, gotHands);
+         
         triangles = faceMesh.getTriangles();
         uvCoords  = faceMesh.getUVCoords();
       }
@@ -86,7 +89,7 @@ async function setup() {
           capture.play();
           camReady  = true;
           faceMesh.detectStart(capture, gotFaces);
-          handPose.detectStart(capture, gotHands);
+           
           triangles = faceMesh.getTriangles();
           uvCoords  = faceMesh.getUVCoords();
         } catch(e) {}
@@ -110,7 +113,7 @@ async function checkHasCamera() {
 // ── draw ───────────────────────────────────────────────────
 function draw() {
   // WEBGL 原點在畫面中心，平移到左上角與 2D 行為一致
-  translate(-width / 2, -height / 2);
+  
 
   background('#297BB2');
   pulseT += 0.035;
@@ -196,7 +199,9 @@ function drawFaceMeshDetect(x, y, w, h, vw, vh) {
   if (faces.length === 0 || !triangles) return;
 
   const face = faces[0];
-  capture.loadPixels();
+  if (frameCount % 2 === 0) {
+    capture.loadPixels();
+  }
   if (!capture.pixels || capture.pixels.length === 0) return;
 
   beginShape(TRIANGLES);
@@ -216,7 +221,7 @@ function drawFaceMeshDetect(x, y, w, h, vw, vh) {
 
     stroke(255, 230, 0, 120);
     strokeWeight(0.8);
-    fill(rr, gg, bb);
+    noFill();
 
     // 映射到畫布框（X 鏡像）
     vertex(x + w - (pA.x / vw) * w,  y + (pA.y / vh) * h);
@@ -228,30 +233,44 @@ function drawFaceMeshDetect(x, y, w, h, vw, vh) {
 
 // ── 臉譜模式：UV 貼圖（face1/face2.png）──────────────────
 function drawFaceMeshTexture(x, y, w, h, vw, vh) {
-  if (faces.length === 0 || !triangles || !uvCoords) return;
+
+  if (faces.length === 0) return;
 
   const face = faces[0];
   const img  = faceImgs[currentFaceIdx];
+
   if (!img) return;
 
-  texture(img);
-  textureMode(NORMAL);
-  noStroke();
+  // 取得臉部範圍
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
 
-  beginShape(TRIANGLES);
-  for (let i = 0; i < triangles.length; i++) {
-    const [a, b, c] = triangles[i];
-    const pA = face.keypoints[a],  uvA = uvCoords[a];
-    const pB = face.keypoints[b],  uvB = uvCoords[b];
-    const pC = face.keypoints[c],  uvC = uvCoords[c];
+  for (const p of face.keypoints) {
 
-    // UV X 鏡像（1 - u），與螢幕翻轉一致
-    vertex(x + w - (pA.x / vw) * w,  y + (pA.y / vh) * h,  1 - uvA[0], uvA[1]);
-    vertex(x + w - (pB.x / vw) * w,  y + (pB.y / vh) * h,  1 - uvB[0], uvB[1]);
-    vertex(x + w - (pC.x / vw) * w,  y + (pC.y / vh) * h,  1 - uvC[0], uvC[1]);
+    minX = min(minX, p.x);
+    minY = min(minY, p.y);
+    maxX = max(maxX, p.x);
+    maxY = max(maxY, p.y);
   }
-  endShape();
-  noTexture();  // 重置材質，避免影響後續繪製
+
+  // 鏡像映射
+  const fx = x + w - (maxX / vw) * w;
+  const fy = y + (minY / vh) * h;
+
+  const fw = ((maxX - minX) / vw) * w;
+  const fh = ((maxY - minY) / vh) * h;
+
+  push();
+
+  imageMode(CORNER);
+
+  tint(255, 220);
+
+  image(img, fx, fy, fw, fh);
+
+  pop();
 }
 
 // ── 模式切換按鈕 ───────────────────────────────────────────
@@ -283,6 +302,10 @@ function initModeButton() {
   `;
   btn.onclick = () => {
     displayMode = (displayMode === 'detect') ? 'texture' : 'detect';
+    if (displayMode === 'texture' && !handStarted) {
+      handPose.detectStart(capture, gotHands);
+      handStarted = true;
+    }
     btn.innerHTML        = displayMode === 'detect' ? '🔬 偵測模式' : '🎭 臉譜模式';
     btn.style.background = displayMode === 'detect'
       ? 'rgba(41, 123, 178, 0.8)'

@@ -49,7 +49,7 @@ function gotHands(results) { hands = results; }
 async function setup() {
   
   // WEBGL 模式：支援 UV 貼圖 texture()
-  createCanvas(windowWidth, windowHeight);
+  createCanvas(windowWidth, windowHeight, WEBGL);
   frameRate(60);
 
   const hasCamera = await checkHasCamera();
@@ -113,7 +113,7 @@ async function checkHasCamera() {
 // ── draw ───────────────────────────────────────────────────
 function draw() {
   // WEBGL 原點在畫面中心，平移到左上角與 2D 行為一致
-  
+  translate(-width / 2, -height / 2);
 
   background('#297BB2');
   pulseT += 0.035;
@@ -234,41 +234,55 @@ function drawFaceMeshDetect(x, y, w, h, vw, vh) {
 // ── 臉譜模式：UV 貼圖（face1/face2.png）──────────────────
 function drawFaceMeshTexture(x, y, w, h, vw, vh) {
 
-  if (faces.length === 0) return;
+  if (
+    faces.length === 0 ||
+    !triangles ||
+    !uvCoords
+  ) return;
 
   const face = faces[0];
   const img  = faceImgs[currentFaceIdx];
 
   if (!img) return;
 
-  // 取得臉部範圍
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const p of face.keypoints) {
-
-    minX = min(minX, p.x);
-    minY = min(minY, p.y);
-    maxX = max(maxX, p.x);
-    maxY = max(maxY, p.y);
-  }
-
-  // 鏡像映射
-  const fx = x + w - (maxX / vw) * w;
-  const fy = y + (minY / vh) * h;
-
-  const fw = ((maxX - minX) / vw) * w;
-  const fh = ((maxY - minY) / vh) * h;
-
   push();
 
-  imageMode(CORNER);
+  textureMode(NORMAL);
+  texture(img);
 
-  tint(255, 220);
+  noStroke();
 
-  image(img, fx, fy, fw, fh);
+  beginShape(TRIANGLES);
+
+  // 降低負載（不用全部 triangle）
+  for (let i = 0; i < triangles.length; i++) {
+
+    const [a, b, c] = triangles[i];
+
+    const pA = face.keypoints[a];
+    const pB = face.keypoints[b];
+    const pC = face.keypoints[c];
+
+    const uvA = uvCoords[a];
+    const uvB = uvCoords[b];
+    const uvC = uvCoords[c];
+
+    // X 鏡像
+    const ax = x + w - (pA.x / vw) * w;
+    const ay = y + (pA.y / vh) * h;
+
+    const bx = x + w - (pB.x / vw) * w;
+    const by = y + (pB.y / vh) * h;
+
+    const cx = x + w - (pC.x / vw) * w;
+    const cy = y + (pC.y / vh) * h;
+
+    vertex(ax, ay, 1 - uvA[0], uvA[1]);
+    vertex(bx, by, 1 - uvB[0], uvB[1]);
+    vertex(cx, cy, 1 - uvC[0], uvC[1]);
+  }
+
+  endShape();
 
   pop();
 }
